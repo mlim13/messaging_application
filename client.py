@@ -1,32 +1,62 @@
-#coding: utf-8
 from socket import *
+from json import dumps
+import sys
 
-#Define connection (socket) parameters
-#Address + Port no
-#Server would be running on the same host as Client
+# defining the (known) server parameters
 serverName = 'localhost'
-
-#change this port number if required
 serverPort = 12000
 
-clientSocket = socket(AF_INET, SOCK_STREAM)
-#This line creates the client’s socket. The first parameter indicates the address family; in particular,AF_INET indicates that the underlying network is using IPv4. The second parameter indicates that the socket is of type SOCK_STREAM,which means it is a TCP socket (rather than a UDP socket, where we use SOCK_DGRAM). 
+def string_to_message(input_string):
+    '''
+    From an inputted string ('message'), we want to return a dictionary indexed by all the required fields:
+        - command
+        - User
+            this will be used by the Server to determine the dest IP and dest port
+        - payload (either time or the message to be sent)
+    '''
+    # initialising message fields to be empty
+    command = ""
+    user = ""
+    payload = ""
 
-clientSocket.connect(('localhost', serverPort))
-#Before the client can send data to the server (or vice versa) using a TCP socket, a TCP connection must first be established between the client and server. The above line initiates the TCP connection between the client and server. The parameter of the connect( ) method is the address of the server side of the connection. After this line of code is executed, the three-way handshake is performed and a TCP connection is established between the client and server.
+    input_list = input_string.split()
+    command = input_list[0]
+    if command == "message":
+        user = input_list[1]
+        payload = input_list[2]
+    elif command == "broadcast" or command == "whoelsesince":
+        payload = input_list[1]
+    elif command == "block" or command == "unblock":
+        user = input_list[1]
 
+    message = {
+        "Command": command,
+        "User": user,
+        "Payload": payload
+    }
+
+    return message
+    
+# requesting connection
+'''
+- When a new client program is started, it creates a TCP connection with the known server
+- Server-side will ask for login details over this connection
+    - if correct, TCP connection will be maintained
+    - else, TCP connection closed
+'''
+try:
+    clientSocket = socket(AF_INET, SOCK_STREAM)
+    clientSocket.connect((serverName, serverPort))
+except:
+    print("Unable to connect to Server at this time. Please try again later.")
+    exit()
+
+# if connected, go here
 while True:
-    sentence = input('Input lowercase sentence:')
-    #raw_input() is a built-in function in Python. When this command is executed, the user at the client is prompted with the words “Input lowercase sentence:” The user then uses the keyboard to input a line, which is put into the variable sentence. Now that we have a socket and a message, we will want to send the message through the socket to the destination host.
-
-    clientSocket.send(sentence.encode())
-    #As the connection has already been established, the client program simply drops the bytes in the string sentence into the TCP connection. Note the difference between UDP sendto() and TCP send() calls. In TCP we do not need to attach the destination address to the packet, as was the case with UDP sockets.
-
-    modifiedSentence = clientSocket.recv(1024)
-    #We wait to receive the reply from the server, store it in modifiedSentence
-
-    print ('From Server:' + str(modifiedSentence))
-    #print what we have received
+    input_string = input("> ")
+    message = string_to_message(input_string)
+    clientSocket.send(dumps(message).encode())
+    ack = clientSocket.recv(1024)
+    print(ack.decode())
 
 clientSocket.close()
-#and close the socket
