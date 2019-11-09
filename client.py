@@ -1,12 +1,14 @@
 from socket import *
 from json import dumps
 import sys
+import threading
+import time
 
 # defining the (known) server parameters
 serverName = 'localhost'
 serverPort = 12000
 
-def string_to_message(input_string):
+def string_to_message(input_string, sender):
     '''
     From an inputted string ('message'), we want to return a dictionary indexed by all the required fields:
         - command
@@ -32,7 +34,8 @@ def string_to_message(input_string):
     message = {
         "Command": command,
         "User": user,
-        "Payload": payload
+        "Payload": payload,
+        "Sender": sender
     }
 
     return message
@@ -52,11 +55,33 @@ except:
     exit()
 
 # if connected, go here
+username = input("Please enter your username: ")
+password = input("Please enter your password: ")
+authentication = {
+    "Username":username,
+    "Password":password
+}
+clientSocket.send(dumps(authentication).encode())
+
+def send_func(clientSocket, authentication):
+    while True:
+        input_string = input("> ")
+        message = string_to_message(input_string, authentication["Username"])
+        clientSocket.send(dumps(message).encode())
+        time.sleep(0.5)
+def recv_func(clientSocket, authentication):
+    while True:
+        ack = clientSocket.recv(1024)
+        sys.stdout.write(ack.decode())
+        sys.stdout.write("\n> ")
+        time.sleep(0.5)
+
+send_thread = threading.Thread(target=send_func, daemon=True, args=(clientSocket,authentication))
+recv_thread = threading.Thread(target=recv_func, daemon=True, args=(clientSocket,authentication))
+send_thread.start()
+recv_thread.start()
+
 while True:
-    input_string = input("> ")
-    message = string_to_message(input_string)
-    clientSocket.send(dumps(message).encode())
-    ack = clientSocket.recv(1024)
-    print(ack.decode())
+    pass
 
 clientSocket.close()
