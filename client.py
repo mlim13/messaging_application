@@ -21,7 +21,7 @@ def string_to_message(input_string, sender):
     user = ""
     payload = ""
 
-    input_list = input_string.split()
+    input_list = input_string.split(" ", 2)
     command = input_list[0]
     if command == "message":
         user = input_list[1]
@@ -40,6 +40,21 @@ def string_to_message(input_string, sender):
 
     return message
     
+def send_func(clientSocket, authentication):
+    while True:
+        input_string = input("> ")
+        message = string_to_message(input_string, authentication["Username"])
+        clientSocket.send(dumps(message).encode())
+        time.sleep(0.5)
+def recv_func(clientSocket, authentication):
+    while True:
+        ack = clientSocket.recv(1024)
+        if len(ack) == 0:
+           break
+        sys.stdout.write(ack.decode())
+        sys.stdout.write("\n> ")
+        time.sleep(0.5)
+    
 # requesting connection
 '''
 - When a new client program is started, it creates a TCP connection with the known server
@@ -55,33 +70,21 @@ except:
     exit()
 
 # if connected, go here
-username = input("Please enter your username: ")
-password = input("Please enter your password: ")
-authentication = {
-    "Username":username,
-    "Password":password
-}
-clientSocket.send(dumps(authentication).encode())
-
-def send_func(clientSocket, authentication):
-    while True:
-        input_string = input("> ")
-        message = string_to_message(input_string, authentication["Username"])
-        clientSocket.send(dumps(message).encode())
-        time.sleep(0.5)
-def recv_func(clientSocket, authentication):
-    while True:
-        ack = clientSocket.recv(1024)
-        sys.stdout.write(ack.decode())
-        sys.stdout.write("\n> ")
-        time.sleep(0.5)
-
-send_thread = threading.Thread(target=send_func, daemon=True, args=(clientSocket,authentication))
-recv_thread = threading.Thread(target=recv_func, daemon=True, args=(clientSocket,authentication))
-send_thread.start()
-recv_thread.start()
-
 while True:
-    pass
-
-clientSocket.close()
+    username = input("Please enter your username: ")
+    password = input("Please enter your password: ")
+    authentication = {
+        "Username":username,
+        "Password":password
+    }
+    clientSocket.send(dumps(authentication).encode())
+    ack = clientSocket.recv(1024).decode()
+    print(ack)
+    if ack == "proceed":
+        send_thread = threading.Thread(target=send_func, daemon=True, args=(clientSocket,authentication))
+        recv_thread = threading.Thread(target=recv_func, daemon=False, args=(clientSocket,authentication))
+        send_thread.start()
+        recv_thread.start()
+        break
+    elif ack != "again":
+        break

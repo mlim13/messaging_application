@@ -3,8 +3,11 @@ import threading
 from socket import *
 from json import dumps, loads
 from database import *
+from datetime import datetime
 import time
+from database import database
 
+database.block_time = int(sys.argv[1])
 # creating welcoming socket
 serverPort = 12000 
 serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -12,11 +15,16 @@ serverSocket.bind(('localhost', serverPort))
 serverSocket.listen(1)
 print ("The server is ready to receive")
 
-# list of message dictionaries
-# we currently don't have a means of accessing individual threads (and in turn sockets) at will. We don't have any means of identifying which thread is which. Thus, we can easily send messages from client to server, but we will have trouble sending messages on from server to a specific client
-# we can use a global store of our data/messages to (perhaps naively) solve this
-# when the scheduler gets round to dealing with the receiving client's thread, it will grab the message from global store and send it on
-messages = []
+def authenticated(authentication): # authentication is a user, password dict
+    username = authentication["Username"]
+    password = authentication["Password"]
+    with open('Credentials.txt', 'r') as my_file:
+        lines = my_file.readlines()
+        for line in lines:
+            if username == line.split()[0] and password == line.split()[1]:
+                return True
+    return False
+
 
 def message():
     pass
@@ -39,70 +47,75 @@ def unblock():
 def logout():
     pass
 
-def TCP_recv(connectionSocket, addr, authentication):
-    '''
-    - threads take in a function as input
-    - the threads stay alive until the function ends
-    - therefore, we need to create functions containing an infinite loop that does all the requried TCP functionality
-    '''
-    global messages
-    while True:
-        message = connectionSocket.recv(1024)
-        message = loads(message.decode())
-        if message["Command"] == "message":
-            messages.append(message)
-
-        elif message["Command"] == "broadcast":
-            pass
-
-        elif message["Command"] == "whoelse":
-            pass
-        
-        elif message["Command"] == "whoelsesince":
-            pass
-        
-        elif message["Command"] == "block":
-            pass
-
-        elif message["Command"] == "unblock":
-            pass
-        
-        elif message["Command"] == "logout":
-            pass
-        
-        time.sleep(0.5)
-
-def TCP_send(connectionSocket, addr, authentication):
-    global messages
-    while True:
-        print(messages)
-        new_messages = []
-        # first we deal with any messages that need to be send to THIS socket
-        for msg in messages:
-            #print("0")
-            #print(authentication)
-            if msg["User"] == authentication["Username"]:
-                #print("1")
-                #connectionSocket.send(">".encode())
-                connectionSocket.send((msg["Sender"] + ": " + msg["Payload"]).encode())
-                # print("SEND \n")
-            else:
-                new_messages.append(msg)
-        #print("3")
-        #print(messages)
-        messages = new_messages
-        # print(messages)
-        time.sleep(0.5)
-                
-
-while True:
-    connectionSocket, addr = serverSocket.accept()
+def TCP_recv(connectionSocket, addr):
     authentication = connectionSocket.recv(1024)
     authentication = loads(authentication.decode())
-    recv_thread = threading.Thread(target=TCP_recv, daemon=True, args=(connectionSocket,addr,authentication))
-    send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket,addr,authentication))
-    recv_thread.start()
-    send_thread.start()
+    username = authentication["Username"]
 
-        
-   
+    while True:  
+        database.remove_blocks()  
+        if database.is_username_in_credentials(username): 
+            database.increment_attempt(username)
+            print(database.username_attempts[username])
+            if database.is_attempt_excessive(username):
+                database.add_block(username)
+            if username in database.username_blocked and datetime.now() < database.username_blocked[username]:
+                connectionSocket.send("break".encode())
+                connectionSocket.close()
+                break
+            if authenticated(authentication):
+                database.reset_attempt(authentication["Username"])
+                connectionSocket.send("proceed".encode())
+                send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket,addr, authentication))
+                send_thread.start()
+                while True:
+                    message = connectionSocket.recv(1024)
+                    message = loads(message.decode())
+                    if message["Command"] == "message":
+                        database.messages.append(message)
+
+                    elif message["Command"] == "broadcast":
+                        pass
+
+                    elif message["Command"] == "whoelse":
+                        pass
+                    
+                    elif message["Command"] == "whoelsesince":
+                        pass
+                    
+                    elif message["Command"] == "block":
+                        pass
+
+                    elif message["Command"] == "unblock":
+                        pass
+                    
+                    elif message["Command"] == "logout":
+                        pass
+                    
+                    time.sleep(0.5)
+
+        connectionSocket.send("again".encode())
+        authentication = connectionSocket.recv(1024)
+        authentication = loads(authentication.decode())
+        username = authentication["Username"]        
+
+def TCP_send(connectionSocket, addr, authentication):
+    while True:
+        new_messages = []
+        for msg in database.messages:
+            if msg["User"] == authentication["Username"]:
+                connectionSocket.send((msg["Sender"] + ": " + msg["Payload"]).encode())
+            else:
+                new_messages.append(msg)
+        database.messages = new_messages
+        time.sleep(0.5)             
+
+database.initialise_attempts()
+while True:
+    '''
+    - we need to create a send and receive thread for EACH new TCP connection
+    - this will allow sending and receiving to happen 'simultaneously' for each connection
+    '''
+    connectionSocket, addr = serverSocket.accept()
+    recv_thread = threading.Thread(target=TCP_recv, daemon=True, args=(connectionSocket,addr))
+    recv_thread.start()
