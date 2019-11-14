@@ -1,5 +1,5 @@
 from socket import *
-from json import dumps
+from json import dumps, loads
 import sys
 import threading
 import time
@@ -21,14 +21,14 @@ def string_to_message(input_string, sender):
     user = ""
     payload = ""
 
-    input_list = input_string.split(" ", 2)
+    input_list = input_string.split(" ", 1)
     command = input_list[0]
-    if command == "message":
-        user = input_list[1]
-        payload = input_list[2]
+    if command == "message" or command == "private":
+        user = input_list[1].split(" ", 1)[0]
+        payload = input_list[1].split(" ", 1)[1]
     elif command == "broadcast" or command == "whoelsesince":
         payload = input_list[1]
-    elif command == "block" or command == "unblock":
+    elif command == "block" or command == "unblock" or command == "startprivate" or command == "stopprivate":
         user = input_list[1]
 
     message = {
@@ -48,10 +48,12 @@ def send_func(clientSocket, authentication):
         time.sleep(0.5)
 def recv_func(clientSocket, authentication):
     while True:
-        ack = clientSocket.recv(1024)
-        if len(ack) == 0:
+        response = clientSocket.recv(1024)
+        if len(response) == 0:
            break
-        sys.stdout.write(ack.decode())
+        
+        response = response.decode()
+        sys.stdout.write(response)
         sys.stdout.write("\n> ")
         time.sleep(0.5)
     
