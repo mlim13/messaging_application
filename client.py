@@ -13,10 +13,10 @@ outgoing_messages = []
 
 def create_message_template(command, user, payload, sender):
     message = {
-        "Command": command,
-        "User": user,
-        "Payload": payload,
-        "Sender": sender
+        "Command":command,
+        "User":user,
+        "Payload":payload,
+        "Sender":sender
     }
     return message
 
@@ -33,37 +33,72 @@ def string_to_message(input_string, sender):
     user = ""
     payload = ""
 
-    input_list = input_string.split(" ", 1)
-    command = input_list[0]
-    if command == "message" or command == "private":
-        user = input_list[1].split(" ", 1)[0]
-        payload = input_list[1].split(" ", 1)[1]
-    elif command == "broadcast" or command == "whoelsesince":
-        payload = input_list[1]
-    elif command == "block" or command == "unblock" or command == "startprivate" or command == "stopprivate":
-        user = input_list[1]
+    try:
 
-    message = {
-        "Command": command,
-        "User": user,
-        "Payload": payload,
-        "Sender": sender
-    }
+        input_list = input_string.split(" ", 1)
+        command = input_list[0]
+        if command == "message" or command == "private":
+            user = input_list[1].split(" ", 1)[0]
+            payload = input_list[1].split(" ", 1)[1]
+        elif command == "broadcast" or command == "whoelsesince":
+            payload = input_list[1]
+        elif command == "block" or command == "unblock" or command == "startprivate" or command == "stopprivate":
+            user = input_list[1]
+        else:
+            sys.stdout.write("Invalid request")
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
 
-    return message
+            return None
+
+        message = {
+            "Command": command,
+            "User": user,
+            "Payload": payload,
+            "Sender": sender
+        }
+
+        return message
+    
+    except:
+        sys.stdout.write("Invalid request")
+        sys.stdout.write("\n")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+        return None
  
 p2p_sockets = {}
 
 def send_func(clientSocket, authentication):
     global p2p_sockets
     while True:
-        input_string = input("> ")
+        input_string = input("")
         message = string_to_message(input_string, authentication["Username"])
+        if message is None:
+            continue
         if message["Command"] == "private":
-            user = message["User"]
-            p2p_sockets[user].send(dumps(message).encode())
+            recipient = message["User"]
+            if recipient in p2p_sockets:
+                p2p_sockets[recipient].send(dumps(message).encode())
+                sys.stdout.write("> ")
+            else:
+                sys.stdout.write("Invalid recipient")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+        elif message["Command"] == "stopprivate":
+            recipient = message["User"]
+            if recipient in p2p_sockets:
+                del p2p_sockets[recipient]
+            else:
+                sys.stdout.write("No P2P connection exists here.")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
         else:
             clientSocket.send(dumps(message).encode())
+            sys.stdout.write("> ")
         time.sleep(0.5)
 
 def recv_func(clientSocket, authentication):
@@ -77,20 +112,31 @@ def recv_func(clientSocket, authentication):
         # depending on the response, client performs different actions
         if response["Command"] == "ack":
             sys.stdout.write(response["Payload"])
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
         elif response["Command"] == "message":
             sys.stdout.write(response["Sender"])
             sys.stdout.write(": ")
             sys.stdout.write(response["Payload"])
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
         elif response["Command"] == "whoelse":
             sys.stdout.write("The other online users are: ")
             sys.stdout.write(str(response["Payload"]))
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
         elif response["Command"] == "whoelsesince":
             since = response["Payload"][1]
             sys.stdout.write(f"The users have been online since {since} seconds ago are: ")
             sys.stdout.write(str(response["Payload"][0]))
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
         elif response["Command"] == "address":
             p2p_addr = response["Payload"]
-            print(p2p_addr)
             try:
                 p2p_socket = socket(AF_INET, SOCK_STREAM)
                 p2p_socket.connect(tuple(p2p_addr))
@@ -99,13 +145,18 @@ def recv_func(clientSocket, authentication):
                 # since TCP is bidirectional, we want to update our TCP dict in the other direction too
                 reverse_response = create_message_template("address", response["Sender"], "", "")
                 p2p_sockets[user].send(dumps(reverse_response).encode())
-                print(reverse_response)
                 p2p_recv_thread = threading.Thread(target=p2p_recv_func, daemon=True, args=(p2p_socket,authentication))
                 p2p_recv_thread.start()
+                sys.stdout.write("P2P connection initiated")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
             except:
-                print("Unable to connect to client.")
+                sys.stdout.write("Unable to conenct to client.")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
 
-        sys.stdout.write("\n> ")
         time.sleep(0.5)
 
 def p2p_recv_func(p2p_socket, authentication):
@@ -118,11 +169,16 @@ def p2p_recv_func(p2p_socket, authentication):
         if response["Command"] == "address":
             user = response["User"]
             p2p_sockets[user] = p2p_socket
-        sys.stdout.write(response["Sender"])
-        sys.stdout.write(": ")
-        sys.stdout.write(response["Payload"])
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        elif response["Command"] == "stopprivate":
+            user = response["User"]
+            del p2p_sockets[user]
+        else:
+            sys.stdout.write(response["Sender"])
+            sys.stdout.write(": ")
+            sys.stdout.write(response["Payload"])
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
 
 def listen_func(listen_socket, authentication):
     while True:
@@ -141,7 +197,10 @@ try:
     clientSocket = socket(AF_INET, SOCK_STREAM)
     clientSocket.connect((serverName, serverPort))
 except:
-    print("Unable to connect to Server at this time. Please try again later.")
+    sys.stdout.write("Unable to connect to Server at this time. Please try again later.")
+    sys.stdout.write("\n")
+    sys.stdout.write("> ")
+    sys.stdout.flush()
     exit()
 
 # if connected, go here
@@ -158,7 +217,10 @@ while True:
     ack = loads(ack.decode())
 
     if ack["Payload"] == "proceed":
-        print("Welcome!")
+        sys.stdout.write("Welcome!")
+        sys.stdout.write("\n")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
         listen_socket = socket(AF_INET, SOCK_STREAM)
         listen_socket.bind(authentication["Address"])
         listen_socket.listen(1)
@@ -170,10 +232,19 @@ while True:
         listen_thread.start()
         break
     elif ack["Payload"] == "again":
-        print("Please try again")
+        sys.stdout.write("Please try again.")
+        sys.stdout.write("\n")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
     elif ack["Payload"] == "already_logged_in":
-        print("Already logged in")
+        sys.stdout.write("Already logged in.")
+        sys.stdout.write("\n")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
         break
     else:
-        print("Attempts exceeded")
+        sys.stdout.write("Attempts exceeded.")
+        sys.stdout.write("\n")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
         break

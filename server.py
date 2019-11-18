@@ -177,11 +177,21 @@ def unblock(connectionSocket, message):
         connectionSocket.send(dumps(ack).encode())
 
 def startprivate(connectionSocket, message):
-    try:
-        return database.get_mapping(message["User"])
-    except:
-        ack = create_ack("Invalid user")
+    recipient = message["User"]
+    sender = message["Sender"]
+    if not database.is_username_in_credentials(recipient):
+        ack = create_ack("Not a valid user")
         connectionSocket.send(dumps(ack).encode())
+    elif not database.is_online(recipient):
+        ack = create_ack("This user is not online")
+        connectionSocket.send(dumps(ack).encode())
+    elif recipient == sender:
+        ack = create_ack("Private messaging cannot be started with yourself")
+        connectionSocket.send(dumps(ack).encode())
+    else:
+        addr = database.get_mapping(message["User"])
+        address = create_address(addr, recipient, sender)
+        connectionSocket.send(dumps(address).encode())
 
 def logout(connectionSocket, authentication):
     message = create_message_template("", "", "we out", authentication["Username"])
@@ -228,11 +238,7 @@ def TCP_recv(connectionSocket):
                 logout(connectionSocket, authentication)
                 break
             elif message["Command"] == "startprivate":
-                addr = startprivate(connectionSocket, message)
-                recipient = message["User"]
-                sender = message["Sender"]
-                address = create_address(addr, recipient, sender)
-                connectionSocket.send(dumps(address).encode())
+                startprivate(connectionSocket, message)
             elif message["Command"] == "stopprivate":
                 pass
             elif message["Command"] == "private":
