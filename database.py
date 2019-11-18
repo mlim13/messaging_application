@@ -17,6 +17,11 @@ class database:
     @classmethod
     def add_mapping(self, username, addr):
         self.addr_mapping[username] = addr
+
+    @classmethod
+    def remove_mapping(self, username):
+        if username in self.addr_mapping:
+            del self.addr_mapping[username]
     
     @classmethod
     def get_mapping(self, username):
@@ -56,9 +61,12 @@ class database:
             self.user_history[username] = datetime.now()
 
     @classmethod
-    def go_online(self, username):
+    def go_online(self, username, addr):
         if self.is_username_in_credentials(username):
             self.online_users.append(username)
+            self.add_mapping(username, addr)
+            if username in self.user_history:
+                del self.user_history[username]
 
     @classmethod
     def is_online(self, username):
@@ -69,6 +77,7 @@ class database:
         if username in self.online_users:
             self.online_users.remove(username)
             self.update_history(username)
+            self.remove_mapping(username)
 
     @classmethod
     def increment_attempt(self, username):

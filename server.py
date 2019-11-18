@@ -8,6 +8,39 @@ import time
 from database import database
 import copy
 
+def create_message_template(command, user, payload, sender):
+    message = {
+        "Command": command,
+        "User": user,
+        "Payload": payload,
+        "Sender": sender
+    }
+    return message
+
+def create_ack(payload):
+    message = create_message_template("ack", "", payload, "")
+    return message
+
+def create_message(payload, sender):
+    message = create_message_template("message", "", payload, sender)
+    return message
+
+def create_address(payload, user, sender): # user is the intended recipient
+    message = create_message_template("address", user, payload, sender)
+    return message
+
+def create_whoelse(payload):
+    whoelse = create_message_template("whoelse", "", payload, "")
+    return whoelse
+
+def create_whoelsesince(payload):
+    whoelsesince = create_message_template("whoelsesince", "", payload, "")
+    return whoelsesince
+
+def create_notification(message):
+    message["Command"] = "notification"
+    return message
+
 def is_authenticated(authentication): # authentication is a user, password dict
     '''
     - a localised check of a single 'authentication' dict to see if it's is valid
@@ -30,6 +63,7 @@ def authentication_process(connectionSocket):
     '''
     authentication = connectionSocket.recv(1024)
     authentication = loads(authentication.decode())
+    addr = authentication["Address"]
     username = authentication["Username"]
     while True: # we will infinite loop and conidtionally break from within the loop
         database.remove_blocks()
@@ -38,18 +72,22 @@ def authentication_process(connectionSocket):
             if is_authenticated(authentication) and not is_blocked(username):
                 database.reset_attempt(authentication["Username"])                
                 if database.is_online(username):
-                    connectionSocket.send("already_logged_in".encode())
+                    ack = create_ack("already_logged_in")
+                    connectionSocket.send(dumps(ack).encode())
                     return False, authentication
-                connectionSocket.send("proceed".encode())
-                database.go_online(username) # adds user to list on online users and provides timestamp for login
+                ack = create_ack("proceed")
+                connectionSocket.send(dumps(ack).encode())
+                database.go_online(username, addr) # adds user to list on online users and maps address
                 return True, authentication # successful authentication. Return True and the authentication dict
             if database.is_attempt_excessive(username):
                 database.add_block(username)
             if is_blocked(username):
-                connectionSocket.send("break".encode())
+                ack = create_ack("break")
+                connectionSocket.send(dumps(ack).encode())
                 connectionSocket.close()
                 return False, authentication # too many attempts. Exit
-        connectionSocket.send("again".encode())
+        ack = create_ack("again")
+        connectionSocket.send(dumps(ack).encode())
         authentication = connectionSocket.recv(1024)
         authentication = loads(authentication.decode())
         username = authentication["Username"]  
@@ -63,11 +101,14 @@ def message_recv(connectionSocket, message):
     else:
         if database.is_A_blocked_by_B(sender, receiver):
             if message["Command"] == "message":
-                connectionSocket.send("soz bro youve been BLOCKED".encode())
+                ack = create_ack("You have been blocked by this user")
+                connectionSocket.send(dumps(ack).encode())
             elif message["Command"] == "broadcast": # slightly different response message depending on pm or broadcast
-                connectionSocket.send("oof someone's blocked you man".encode())
+                ack = create_ack("Broadcast could not reach all users")
+                connectionSocket.send(dumps(ack).encode())
         elif not database.is_username_in_credentials(receiver) or sender == receiver:
-            connectionSocket.send("Invalid recipient".encode())
+            ack = create_ack("Invalid recipient")
+            connectionSocket.send(dumps(ack).encode())
         else:
             database.messages.append(message)
 
@@ -75,7 +116,8 @@ def message_send(connectionSocket, authentication):
     new_messages = []
     for msg in database.messages:
         if msg["User"] == authentication["Username"] and database.is_online(authentication["Username"]):
-            connectionSocket.send((msg["Sender"] + ": " + msg["Payload"]).encode())
+            message = create_message(msg["Payload"], msg["Sender"])
+            connectionSocket.send(dumps(message).encode())
             time.sleep(0.2)       
         else:
             new_messages.append(msg)
@@ -100,51 +142,46 @@ def whoelse(connectionSocket, message):
 
 def whoelsesince(connectionSocket, message):
     users = whoelse(connectionSocket, message)
+    since = ""
     try:
-        time = int(message["Payload"])
-    except:
-        print("Invalid input")
+        since = int(message["Payload"])
+    except ValueError:
+        ack = create_ack("Invalid input")
+        connectionSocket.send(dumps(ack).encode())
+
     for user in database.user_history:
-        if database.user_history[user] > datetime.now() - timedelta(seconds=time):
+        if database.user_history[user] > datetime.now() - timedelta(seconds=since):
             users.append(user)
-    return users, time
+    return users, since
 
 def block(connectionSocket, message):
     blocker = message["Sender"]
     blockee = message["User"]
     try:
         database.block_A_by_B(blockee, blocker)
-        connectionSocket.send("Successful Block".encode())
+        ack = create_ack("Successful block")
+        connectionSocket.send(dumps(ack).encode())
     except:
-        connectionSocket.send("Invalid Block".encode())
+        ack = create_ack("Invalid block")
+        connectionSocket.send(dumps(ack).encode())
 
 def unblock(connectionSocket, message):
     blocker = message["Sender"]
     blockee = message["User"]
     try:
         database.unblock_A_by_B(blockee, blocker)
-        connectionSocket.send("Successful unblock".encode())
+        ack = create_ack("Successful unblock")
+        connectionSocket.send(dumps(ack).encode())
     except:
-        connectionSocket.send("Invalid unlock".encode())
+        ack = create_ack("Invalid unblock")
+        connectionSocket.send(dumps(ack).encode())
 
 def startprivate(connectionSocket, message):
     try:
         return database.get_mapping(message["User"])
     except:
-        print("Invalid")
-
-def create_message_template(command, user, payload, sender):
-    message = {
-        "Command": command,
-        "User": user,
-        "Payload": payload,
-        "Sender": sender
-    }
-    return message
-
-def create_notification(message):
-    message["Command"] = "notification"
-    return message
+        ack = create_ack("Invalid user")
+        connectionSocket.send(dumps(ack).encode())
 
 def logout(connectionSocket, authentication):
     message = create_message_template("", "", "we out", authentication["Username"])
@@ -153,14 +190,14 @@ def logout(connectionSocket, authentication):
     database.go_offline(authentication["Username"])
     connectionSocket.close()
 
-def TCP_recv(connectionSocket, addr):
+def TCP_recv(connectionSocket):
     done, authentication = authentication_process(connectionSocket)
     if done: # if authentication process has been successful
         # first send out presence broadcast
         message = create_message_template("", "", "we in the house", authentication["Username"])
         message = create_notification(message)
         broadcast(connectionSocket, message)
-        send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket,addr, authentication))
+        send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket, authentication))
         send_thread.start()   
         connectionSocket.settimeout(database.timeout)          
         while True:
@@ -176,10 +213,13 @@ def TCP_recv(connectionSocket, addr):
                 broadcast(connectionSocket, message)
             elif message["Command"] == "whoelse":
                 online_users = whoelse(connectionSocket, message)
-                connectionSocket.send(("The online users are: " + dumps(online_users)).encode())      
+                response = create_whoelse(online_users)
+                connectionSocket.send(dumps(response).encode())      
             elif message["Command"] == "whoelsesince":
                 users, since = whoelsesince(connectionSocket, message)
-                connectionSocket.send((f"User online since {since} seconds ago are: " + dumps(users)).encode())                  
+                if isinstance(since, int):
+                    response = create_whoelsesince((users, since))
+                    connectionSocket.send(dumps(response).encode())                 
             elif message["Command"] == "block":
                 block(connectionSocket, message)
             elif message["Command"] == "unblock":
@@ -189,15 +229,17 @@ def TCP_recv(connectionSocket, addr):
                 break
             elif message["Command"] == "startprivate":
                 addr = startprivate(connectionSocket, message)
-                response = create_message_template("address", "", addr, "")
-                connectionSocket.send(dumps(response).encode())
+                recipient = message["User"]
+                sender = message["Sender"]
+                address = create_address(addr, recipient, sender)
+                connectionSocket.send(dumps(address).encode())
             elif message["Command"] == "stopprivate":
                 pass
             elif message["Command"] == "private":
                 pass               
             time.sleep(0.5)       
 
-def TCP_send(connectionSocket, addr, authentication):
+def TCP_send(connectionSocket, authentication):
     while True:
         message_send(connectionSocket, authentication) # continually send any pending messages 
         time.sleep(0.5)
@@ -216,5 +258,5 @@ while True:
     - this will allow sending and receiving to happen 'simultaneously' for each connection
     '''
     connectionSocket, addr = serverSocket.accept()
-    recv_thread = threading.Thread(target=TCP_recv, daemon=True, args=(connectionSocket,addr))
+    recv_thread = threading.Thread(target=TCP_recv, daemon=True, args=(connectionSocket,))
     recv_thread.start()
