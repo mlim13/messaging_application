@@ -123,7 +123,6 @@ def message_send(connectionSocket, authentication):
         if msg["User"] == authentication["Username"] and database.is_online(authentication["Username"]):
             message = create_message(msg["Payload"], msg["Sender"])
             connectionSocket.send(dumps(message).encode())
-            time.sleep(0.2)       
         else:
             new_messages.append(msg)
         database.messages = new_messages
@@ -192,6 +191,9 @@ def startprivate(connectionSocket, message):
         connectionSocket.send(dumps(ack).encode())
     elif recipient == sender:
         ack = create_ack("Private messaging cannot be started with yourself")
+        connectionSocket.send(dumps(ack).encode())
+    elif database.is_A_blocked_by_B(sender, recipient):
+        ack = create_ack("You have been blocked by this user")
         connectionSocket.send(dumps(ack).encode())
     else:
         addr = database.get_mapping(message["User"])
@@ -319,10 +321,10 @@ def TCP_send(connectionSocket, authentication):
         message_send(connectionSocket, authentication) # continually send any pending messages 
         time.sleep(0.5)
 
-database.block_time = int(sys.argv[1])
-database.timeout = int(sys.argv[2])
+database.block_time = int(sys.argv[2])
+database.timeout = int(sys.argv[3])
 # creating welcoming socket
-serverPort = 12000 
+serverPort = int(sys.argv[1]) 
 serverSocket = socket(AF_INET, SOCK_STREAM)
 serverSocket.bind(('localhost', serverPort))
 serverSocket.listen(1)
