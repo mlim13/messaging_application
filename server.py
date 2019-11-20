@@ -5,8 +5,9 @@ from json import dumps, loads
 from database import *
 from datetime import datetime
 import time
-from database import database
+from database import database, tracker
 import copy
+import math
 
 def create_message_template(command, user, payload, sender):
     message = {
@@ -16,6 +17,10 @@ def create_message_template(command, user, payload, sender):
         "Sender": sender
     }
     return message
+
+def create_peers(payload):
+    peers = create_message_template("peers", "", payload, "")
+    return peers
 
 def create_ack(payload):
     message = create_message_template("ack", "", payload, "")
@@ -200,6 +205,56 @@ def logout(connectionSocket, authentication):
     database.go_offline(authentication["Username"])
     connectionSocket.close()
 
+def register(connectionSocket, message):
+    peer = message["Sender"]
+    filename = message["Payload"][0]
+    num_chunks = message["Payload"][1] # for out current client implementation, this will always be 10
+    total_bytes = message["Payload"][2]
+    for num in range(num_chunks):
+        chunk_size = math.floor(total_bytes/num_chunks)
+        if num == num_chunks - 1: # if we're on the last chunk
+            chunk_size = total_bytes%num_chunks
+        tracker.add_file(filename, str(num), chunk_size, peer)
+    tracker.set_num_chunks(filename, num_chunks)
+    ack = create_ack("File registered.")
+    connectionSocket.send(dumps(ack).encode())
+    
+def searchFile(connectionSocket, message):
+    peer = message["Sender"]
+    filename = message["Payload"]
+    return tracker.has_some_of_file(filename)
+
+def searchChunk(connectionSocket, message):
+    peer = message["Sender"]
+    filename = message["Payload"][0]
+    chunks = message["Payload"][1]
+    peers = []
+    for chunk in chunks:
+        new_peers = tracker.has_chunk(filename, chunk)
+        if new_peers is not None:
+            peers = peers + new_peers 
+    peers = list(dict.fromkeys(peers)) # duplicate removal
+    return peers
+
+
+def download(connectionSocket, message):
+    sender = message["Sender"]
+    filename = message["Payload"]
+    # first we get the num_chunks and rarest_chunk info
+    num_chunks = tracker.get_num_chunks(filename)
+    rarest_chunk = tracker.get_rarest_chunk(filename)
+    # then we find the owner of this rarest chunk
+    # if multiple owners, we pick a random one
+    owners = tracker.has_chunk(filename, rarest_chunk)
+    num_owners = len(owners)
+    index = random.randint(0, num_owners - 1)
+    owner = owners[index]
+    # now we find the addr of this owner
+    addr = database.get_mapping(owner)
+    # then we send back an "addr" message so the client knows to start a private connection
+    address = create_address(addr, owner, sender)
+    connectionSocket.send(dumps(address).encode())
+
 def TCP_recv(connectionSocket):
     done, authentication = authentication_process(connectionSocket)
     if done: # if authentication process has been successful
@@ -240,9 +295,23 @@ def TCP_recv(connectionSocket):
             elif message["Command"] == "startprivate":
                 startprivate(connectionSocket, message)
             elif message["Command"] == "stopprivate":
+                # server does not handle this command - entirely p2p
                 pass
             elif message["Command"] == "private":
-                pass               
+                # server does not handle this command = entirely p2p
+                pass   
+            elif message["Command"] == "register":
+                register(connectionSocket, message)
+            elif message["Command"] == "searchFile":
+                peers = searchFile(connectionSocket, message)
+                peer_msg = create_peers(peers)
+                connectionSocket.send(dumps(peer_msg).encode())
+            elif message["Command"] == "searchChunk":
+                peers = searchChunk(connectionSocket, message) 
+                peer_msg = create_peers(peers)
+                connectionSocket.send(dumps(peer_msg).encode())   
+            elif message["Command"] == "download":
+                pass
             time.sleep(0.5)       
 
 def TCP_send(connectionSocket, authentication):

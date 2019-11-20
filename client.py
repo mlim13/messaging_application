@@ -4,6 +4,9 @@ import sys
 import threading
 import time
 import copy
+import os
+
+NUM_CHUNKS = 10
 
 # defining the (known) server parameters
 serverName = 'localhost'
@@ -44,6 +47,24 @@ def string_to_message(input_string, sender):
             payload = input_list[1]
         elif command == "block" or command == "unblock" or command == "startprivate" or command == "stopprivate":
             user = input_list[1]
+        # here are our p2p filetransfer commands
+        elif command == "register":
+            # different from the spec, our "register" command will not have args
+            filename = input_list[1]
+            num_chunks = NUM_CHUNKS
+            payload = [filename, num_chunks]
+        elif command == "searchFile":
+            filename = input_list[1].split(" ", 1)[0]
+            payload = filename
+        elif command == "searchChunk":
+            filename = input_list[1].split(" ")[0]
+            # all remaining args are the chunks we are registering
+            chunks = input_list[1].split(" ")[1:]
+            chunks = list(dict.fromkeys(chunks)) # deleting duplicates
+            payload = (filename, chunks)
+        elif command == "download":
+            filename = input_list[1].split(" ", 1)[0]
+            payload = filename
         else:
             sys.stdout.write("Invalid request")
             sys.stdout.write("\n")
@@ -93,6 +114,18 @@ def send_func(clientSocket, authentication):
                 del p2p_sockets[recipient]
             else:
                 sys.stdout.write("No P2P connection exists here.")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+        elif message["Command"] == "register":
+            filename = message["Payload"][0]
+            if os.path.exists(filename):
+                total_bytes = os.path.getsize(filename)
+                message["Payload"].append(total_bytes)
+                clientSocket.send(dumps(message).encode())
+                sys.stdout.write("> ")
+            else:
+                sys.stdout.write("File does not exist.")
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
@@ -156,6 +189,12 @@ def recv_func(clientSocket, authentication):
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
+        elif response["Command"] == "peers":
+            sys.stdout.write("The peers with the desired chunks are: ")
+            sys.stdout.write(str(response["Payload"]))
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
 
         time.sleep(0.5)
 

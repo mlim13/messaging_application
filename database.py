@@ -1,7 +1,9 @@
 # this is just a python file to resemble very basic data storage and some other backend functionality
 from datetime import datetime, timedelta
+import random
 
 class database:
+
     # class variables, not instance variables
     block_time = 0
     timeout = 0
@@ -10,7 +12,6 @@ class database:
     user_history = {} # dict of users and the last time they were logged in (only holds currently offline peeps)
     block_list = {} # dict indexed by username, val is a set of all respective blocked users
     addr_mapping = {} # dict maps username to an address tuple (ip address, port)
-
     username_attempts = {} # dict indexed by username, val is the current number of tries
     username_blocked = {} # dict indexed by username, val is the end time
 
@@ -91,9 +92,11 @@ class database:
     @classmethod
     def reset_attempt(self, username):
         self.username_attempts[username] = 0
+
     @classmethod
     def is_attempt_excessive(self, username):
         return self.username_attempts[username] >= 3
+
     @classmethod
     def is_username_in_credentials(self, username):
         with open('Credentials.txt', 'r') as my_file:
@@ -102,6 +105,7 @@ class database:
                 if username == line.split()[0]:
                     return True
         return False
+
     @classmethod
     def add_block(self, username):
         if username not in self.username_blocked:
@@ -117,4 +121,72 @@ class database:
                 self.reset_attempt(user)
         self.username_blocked = new_dict
 
+# for p2p file transfer
+class tracker:
 
+    files = {}
+    num_chunks = {}
+
+    @classmethod
+    # add file and an associated chunk and peer
+    def add_file(self, filename, chunk_name, chunk_size, peer):
+        if filename not in self.files:
+            self.files[filename] = {}
+            self.files[filename][chunk_name] = {}
+            self.files[filename][chunk_name]["size"] = chunk_size          
+            self.files[filename][chunk_name]["peers"] = set([peer])
+        else:
+            if chunk_name not in self.files[filename]:
+                self.files[filename][chunk_name] = {}
+                self.files[filename][chunk_name]["size"] = chunk_size          
+                self.files[filename][chunk_name]["peers"] = set([peer])
+            else:
+                self.files[filename][chunk_name]["peers"].add(peer)
+
+    @classmethod
+    # add info about the total number of chunks for a file
+    def set_num_chunks(self, filename, num_chunks):
+        if filename in self.num_chunks:
+            self.num_chunks[filename] = num_chunks
+
+    @classmethod
+    def get_num_chunks(self, filename):
+        if filename in self.num_chunks:
+            return self.num_chunks[filename]
+
+    @classmethod
+    # returns peers who have at least one chunk of a file
+    def has_some_of_file(self, filename):
+        if filename in self.files:
+            peers = set()
+            for chunk in self.files[filename]:
+                peers = peers.union(self.files[filename][chunk]["peers"])
+            if len(peers) == 0:
+                return []
+            return list(peers)
+
+    @classmethod
+    # returns peers who have a specific chunk of a file
+    def has_chunk(self, filename, chunk_name):
+        if filename in self.files and chunk_name in self.files[filename]:
+            return list(self.files[filename][chunk_name]["peers"])
+    
+    @classmethod
+    # for a given file, rarest chunk
+    def get_rarest_chunk(self, filename):
+        if filename in self.files:
+            num_chunks = self.num_chunks[filename]
+            rarity = 1000 # some arbitrarily large number
+            rarest_chunks = []
+            for chunk in self.files[filename]:
+                length = len(self.files[filename][chunk]["peers"])
+                if length == rarity:
+                    rarest_chunk.append(chunk) # so we get a list of all equal rarests
+                elif length < rarity:
+                    rarest_chunks = []
+                    rarest_chunk.append(chunk)
+            # if there is more than one rarest, we randomise so we only return one
+            num_rarest = len(rarest_chunks)
+            index = random.randint(0, num_rarest - 1)
+            rarest_chunk = rarest_chunks[index]
+            return rarest_chunk
