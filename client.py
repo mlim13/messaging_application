@@ -129,6 +129,8 @@ def send_func(clientSocket, authentication):
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
+        elif message["Command"] == "download":
+            
         else:
             clientSocket.send(dumps(message).encode())
             sys.stdout.write("> ")
@@ -195,6 +197,9 @@ def recv_func(clientSocket, authentication):
             sys.stdout.write("\n")
             sys.stdout.write("> ")
             sys.stdout.flush()
+        elif response["Command"] == "downlaod":
+            print("download")
+            pass
 
         time.sleep(0.5)
 

@@ -18,6 +18,10 @@ def create_message_template(command, user, payload, sender):
     }
     return message
 
+def create_download(payload, user, sender):
+    download = create_message_template("download", user, payload, sender)
+    return download
+
 def create_peers(payload):
     peers = create_message_template("peers", "", payload, "")
     return peers
@@ -254,8 +258,8 @@ def download(connectionSocket, message):
     # now we find the addr of this owner
     addr = database.get_mapping(owner)
     # then we send back an "addr" message so the client knows to start a private connection
-    address = create_address(addr, owner, sender)
-    connectionSocket.send(dumps(address).encode())
+    download = create_download(addr, owner, sender)
+    connectionSocket.send(dumps(download).encode())
 
 def TCP_recv(connectionSocket):
     done, authentication = authentication_process(connectionSocket)
