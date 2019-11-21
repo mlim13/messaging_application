@@ -18,9 +18,22 @@ def create_message_template(command, user, payload, sender):
     }
     return message
 
-def create_download(payload, user, sender):
-    download = create_message_template("download", user, payload, sender)
-    return download
+def create_download(owner_name, owner_addr, filename, chunk_name, base_size, num_chunks):
+    payload = {
+        "owner_name":owner_name,
+        "owner_addr":owner_addr,
+        "filename":filename,
+        "chunk_name":chunk_name,
+        "base_size":base_size,
+        "num_chunks":num_chunks,
+    }
+    message = {
+        "Command": "download",
+        "User": "",
+        "Payload": payload,
+        "Sender": "",
+    }
+    return message
 
 def create_peers(payload):
     peers = create_message_template("peers", "", payload, "")
@@ -126,7 +139,10 @@ def message_send(connectionSocket, authentication):
     for msg in database.messages:
         if msg["User"] == authentication["Username"] and database.is_online(authentication["Username"]):
             message = create_message(msg["Payload"], msg["Sender"])
-            connectionSocket.send(dumps(message).encode())
+            try:
+                connectionSocket.send(dumps(message).encode())
+            except:
+                pass
         else:
             new_messages.append(msg)
         database.messages = new_messages
@@ -205,7 +221,7 @@ def startprivate(connectionSocket, message):
         connectionSocket.send(dumps(address).encode())
 
 def logout(connectionSocket, authentication):
-    message = create_message_template("", "", "we out", authentication["Username"])
+    message = create_message_template("", "", "Logging out!", authentication["Username"])
     message = create_notification(message)
     broadcast(connectionSocket, message)
     database.go_offline(authentication["Username"])
@@ -215,9 +231,11 @@ def register(connectionSocket, message):
     peer = message["Sender"]
     filename = message["Payload"][0]
     num_chunks = message["Payload"][1] # for out current client implementation, this will always be 10
+    tracker.num_chunks[filename] = num_chunks
     total_bytes = message["Payload"][2]
     for num in range(num_chunks):
         chunk_size = math.floor(total_bytes/num_chunks)
+        tracker.base_size[filename] = chunk_size # helps with calculating offset
         if num == num_chunks - 1: # if we're on the last chunk
             chunk_size = total_bytes%num_chunks
         tracker.add_file(filename, str(num), chunk_size, peer)
@@ -244,28 +262,36 @@ def searchChunk(connectionSocket, message):
 
 
 def download(connectionSocket, message):
-    sender = message["Sender"]
     filename = message["Payload"]
-    # first we get the num_chunks and rarest_chunk info
-    num_chunks = tracker.get_num_chunks(filename)
-    rarest_chunk = tracker.get_rarest_chunk(filename)
-    # then we find the owner of this rarest chunk
-    # if multiple owners, we pick a random one
-    owners = tracker.has_chunk(filename, rarest_chunk)
-    num_owners = len(owners)
-    index = random.randint(0, num_owners - 1)
-    owner = owners[index]
-    # now we find the addr of this owner
-    addr = database.get_mapping(owner)
-    # then we send back an "addr" message so the client knows to start a private connection
-    download = create_download(addr, owner, sender)
-    connectionSocket.send(dumps(download).encode())
+    if filename in tracker.files:
+        
+        # first we get the num_chunks and rarest_chunk info
+        num_chunks = tracker.get_num_chunks(filename)
+        rarest_chunk = tracker.get_rarest_chunk(filename)
+        # then we find the owner of this rarest chunk
+        # if multiple owners, we pick a random one
+        owners = tracker.has_chunk(filename, rarest_chunk)
+        num_owners = len(owners)
+        index = random.randint(0, num_owners - 1)
+        owner = owners[index]
+        # getting some info
+        base_size = tracker.base_size[filename]
+        #chunk_size = tracker.files[filename][rarest_chunk]["size"]
+        num_chunks = tracker.num_chunks[filename]
+        # now we find the addr of this owner
+        addr = database.get_mapping(owner)
+        # then we send back an "addr" message so the client knows to start a private connection
+        download = create_download(owner, addr, filename, rarest_chunk, base_size, num_chunks)
+        connectionSocket.send(dumps(download).encode())
+    else:
+        ack = create_ack("No such file.")
+        connectionSocket.send(dumps(ack).encode())
 
 def TCP_recv(connectionSocket):
     done, authentication = authentication_process(connectionSocket)
     if done: # if authentication process has been successful
         # first send out presence broadcast
-        message = create_message_template("", "", "we in the house", authentication["Username"])
+        message = create_message_template("", "", "I've logged in!", authentication["Username"])
         message = create_notification(message)
         broadcast(connectionSocket, message)
         send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket, authentication))
@@ -317,13 +343,13 @@ def TCP_recv(connectionSocket):
                 peer_msg = create_peers(peers)
                 connectionSocket.send(dumps(peer_msg).encode())   
             elif message["Command"] == "download":
-                pass
-            time.sleep(0.5)       
+                download(connectionSocket, message)
+            time.sleep(0.8)       
 
 def TCP_send(connectionSocket, authentication):
     while True:
         message_send(connectionSocket, authentication) # continually send any pending messages 
-        time.sleep(0.5)
+        time.sleep(0.2)
 
 database.block_time = int(sys.argv[2])
 database.timeout = int(sys.argv[3])

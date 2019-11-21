@@ -126,6 +126,7 @@ class tracker:
 
     files = {}
     num_chunks = {}
+    base_size = {}
 
     @classmethod
     # add file and an associated chunk and peer
@@ -181,10 +182,10 @@ class tracker:
             for chunk in self.files[filename]:
                 length = len(self.files[filename][chunk]["peers"])
                 if length == rarity:
-                    rarest_chunk.append(chunk) # so we get a list of all equal rarests
+                    rarest_chunks.append(chunk) # so we get a list of all equal rarests
                 elif length < rarity:
                     rarest_chunks = []
-                    rarest_chunk.append(chunk)
+                    rarest_chunks.append(chunk)
             # if there is more than one rarest, we randomise so we only return one
             num_rarest = len(rarest_chunks)
             index = random.randint(0, num_rarest - 1)

@@ -5,14 +5,15 @@ import threading
 import time
 import copy
 import os
+import io
 
 NUM_CHUNKS = 10
-
 # defining the (known) server parameters
 serverName = sys.argv[1]
 serverPort = int(sys.argv[2])
 
 outgoing_messages = []
+curr_filename = ""
 
 def create_message_template(command, user, payload, sender):
     message = {
@@ -23,6 +24,10 @@ def create_message_template(command, user, payload, sender):
     }
     return message
 
+def create_ack(payload):
+    message = create_message_template("ack", "", payload, "")
+    return message
+
 def string_to_message(input_string, sender):
     '''
     From an inputted string ('message'), we want to return a dictionary indexed by all the required fields:
@@ -31,6 +36,7 @@ def string_to_message(input_string, sender):
             this will be used by the Server to determine the dest IP and dest port
         - payload (either time or the message to be sent)
     '''
+    global curr_filename
     # initialising message fields to be empty
     command = ""
     user = ""
@@ -65,6 +71,13 @@ def string_to_message(input_string, sender):
         elif command == "download":
             filename = input_list[1].split(" ", 1)[0]
             payload = filename
+        elif command == "single":
+            user = input_list[1].split(" ", 1)[0]
+            filename = input_list[1].split(" ", 2)[1]
+            curr_filename = filename
+            payload = filename
+        elif command == "logout" or command == "whoelse":
+            pass
         else:
             sys.stdout.write("Invalid request")
             sys.stdout.write("\n")
@@ -79,16 +92,15 @@ def string_to_message(input_string, sender):
             "Payload": payload,
             "Sender": sender
         }
-
         return message
-    
+
     except:
         sys.stdout.write("Invalid request")
         sys.stdout.write("\n")
         sys.stdout.write("> ")
         sys.stdout.flush()
         return None
- 
+
 p2p_sockets = {}
 
 def send_func(clientSocket, authentication):
@@ -111,7 +123,12 @@ def send_func(clientSocket, authentication):
         elif message["Command"] == "stopprivate":
             recipient = message["User"]
             if recipient in p2p_sockets:
+                reverse_response = create_message_template("del", message["Sender"], "", "")
+                p2p_sockets[recipient].send(dumps(reverse_response).encode())
+                p2p_sockets[recipient].close()
                 del p2p_sockets[recipient]
+                sys.stdout.write("> ")
+                sys.stdout.flush()
             else:
                 sys.stdout.write("No P2P connection exists here.")
                 sys.stdout.write("\n")
@@ -124,16 +141,30 @@ def send_func(clientSocket, authentication):
                 message["Payload"].append(total_bytes)
                 clientSocket.send(dumps(message).encode())
                 sys.stdout.write("> ")
+                sys.stdout.flush()            
             else:
                 sys.stdout.write("File does not exist.")
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
         elif message["Command"] == "download":
-            
+            clientSocket.send(dumps(message).encode())
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+        elif message["Command"] == "single":
+            recipient = message["User"]
+            if recipient in p2p_sockets:
+                p2p_sockets[recipient].send(dumps(message).encode())
+                sys.stdout.write("> ")
+            else:
+                sys.stdout.write("Invalid recipient")
+                sys.stdout.write("\n")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
         else:
             clientSocket.send(dumps(message).encode())
             sys.stdout.write("> ")
+            sys.stdout.flush()
         time.sleep(0.5)
 
 def recv_func(clientSocket, authentication):
@@ -143,7 +174,6 @@ def recv_func(clientSocket, authentication):
         if len(response) == 0:
            break
         response = loads(response.decode())
-
         # depending on the response, client performs different actions
         if response["Command"] == "ack":
             sys.stdout.write(response["Payload"])
@@ -197,25 +227,70 @@ def recv_func(clientSocket, authentication):
             sys.stdout.write("\n")
             sys.stdout.write("> ")
             sys.stdout.flush()
-        elif response["Command"] == "downlaod":
-            print("download")
-            pass
+        elif response["Command"] == "download":
+            base_size = response["Payload"]["base_size"]
+            chunk_name = response["Payload"]["chunk_name"]
+            sys.stdout.write("downloaded bby")
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
 
         time.sleep(0.5)
 
 def p2p_recv_func(p2p_socket, authentication):
     global p2p_sockets
+    global curr_filename
     while True:
+        try: # use this to also check if this socket is alive
+            p2p_socket.setblocking(True)
+        except:
+            continue
         response = p2p_socket.recv(1024)
         if len(response) == 0:
            break
-        response = loads(response.decode())
-        if response["Command"] == "address":
+        try:
+            response = loads(response.decode())
+        except: # if we are receiving file/chunks we dont want to json load it
+            with open(curr_filename, "wb") as fh:
+                while response:
+                    print("Receiving file...")
+                    p2p_socket.settimeout(2) # we don't want to hang here
+                    fh.write(response)
+                    try:
+                        response = p2p_socket.recv(1024)
+                    except: # catch timeout
+                        sys.stdout.write("Done.")
+                        sys.stdout.write("\n")
+                        sys.stdout.write("> ")
+                        sys.stdout.flush()
+                        break
+            continue
+        if response["Command"] == "ack":
+            sys.stdout.write(response["Payload"])
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+        elif response["Command"] == "del":
+            del p2p_sockets[response["User"]]
+        elif response["Command"] == "address":
             user = response["User"]
             p2p_sockets[user] = p2p_socket
         elif response["Command"] == "stopprivate":
             user = response["User"]
             del p2p_sockets[user]
+        elif response["Command"] == "single":
+            reply_to = response["Sender"]
+            filename = response["Payload"]
+            if not os.path.exists(filename):
+                ack = create_ack("This user does not have requested file.")
+                p2p_sockets[reply_to].send(dumps(ack).encode())
+            else:
+                with open(filename, "rb") as my_file:
+                    byte = my_file.read(1024)
+                    while byte:
+                        p2p_sockets[reply_to].send(byte)
+                        byte = my_file.read(1024)
+
         else:
             sys.stdout.write(response["Sender"])
             sys.stdout.write(": ")
