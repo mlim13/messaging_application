@@ -142,7 +142,7 @@ def message_send(connectionSocket, authentication):
             try:
                 connectionSocket.send(dumps(message).encode())
             except:
-                pass
+                new_messages.append(msg)
         else:
             new_messages.append(msg)
         database.messages = new_messages
@@ -298,9 +298,8 @@ def TCP_recv(connectionSocket):
         send_thread.start()   
         connectionSocket.settimeout(database.timeout)          
         while True:
-            try:
-                message = connectionSocket.recv(1024)
-            except:
+            message = connectionSocket.recv(1024)
+            if len(message) == 0:
                 logout(connectionSocket, authentication)
                 break
             message = loads(message.decode())
@@ -344,12 +343,12 @@ def TCP_recv(connectionSocket):
                 connectionSocket.send(dumps(peer_msg).encode())   
             elif message["Command"] == "download":
                 download(connectionSocket, message)
-            time.sleep(0.8)       
+            time.sleep(0.2)       
 
 def TCP_send(connectionSocket, authentication):
     while True:
         message_send(connectionSocket, authentication) # continually send any pending messages 
-        time.sleep(0.2)
+        time.sleep(0.1)
 
 database.block_time = int(sys.argv[2])
 database.timeout = int(sys.argv[3])

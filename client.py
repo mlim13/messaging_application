@@ -12,7 +12,8 @@ NUM_CHUNKS = 10
 serverName = sys.argv[1]
 serverPort = int(sys.argv[2])
 
-outgoing_messages = []
+# stores our p2p sockets, indexed by usernames
+p2p_sockets = {}
 curr_filename = ""
 
 def create_message_template(command, user, payload, sender):
@@ -101,9 +102,8 @@ def string_to_message(input_string, sender):
         sys.stdout.flush()
         return None
 
-p2p_sockets = {}
-
 def send_func(clientSocket, authentication):
+    # function handles our sending of data to the server
     global p2p_sockets
     while True:
         input_string = input("")
@@ -113,7 +113,11 @@ def send_func(clientSocket, authentication):
         if message["Command"] == "private":
             recipient = message["User"]
             if recipient in p2p_sockets:
-                p2p_sockets[recipient].send(dumps(message).encode())
+                try:
+                    p2p_sockets[recipient].send(dumps(message).encode())
+                except:
+                    p2p_sockets[recipient].close()
+                    del p2p_sockets[recipient]
                 sys.stdout.write("> ")
             else:
                 sys.stdout.write("Invalid recipient")
@@ -165,9 +169,10 @@ def send_func(clientSocket, authentication):
             clientSocket.send(dumps(message).encode())
             sys.stdout.write("> ")
             sys.stdout.flush()
-        time.sleep(0.5)
+        time.sleep(0.1)
 
 def recv_func(clientSocket, authentication):
+    # this function deals with our received data from the server
     global p2p_sockets
     while True:
         response = clientSocket.recv(1024)
@@ -235,7 +240,7 @@ def recv_func(clientSocket, authentication):
             sys.stdout.write("> ")
             sys.stdout.flush()
 
-        time.sleep(0.5)
+        time.sleep(0.1)
 
 def p2p_recv_func(p2p_socket, authentication):
     global p2p_sockets
