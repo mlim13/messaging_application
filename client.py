@@ -116,6 +116,7 @@ def send_func(clientSocket, authentication):
                 try:
                     p2p_sockets[recipient].send(dumps(message).encode())
                 except:
+                    print("User is not available at this address anymore.")
                     p2p_sockets[recipient].close()
                     del p2p_sockets[recipient]
                 sys.stdout.write("> ")
@@ -129,6 +130,7 @@ def send_func(clientSocket, authentication):
             if recipient in p2p_sockets:
                 reverse_response = create_message_template("del", message["Sender"], "", "")
                 p2p_sockets[recipient].send(dumps(reverse_response).encode())
+                p2p_sockets[recipient].shutdown(SHUT_RDWR)
                 p2p_sockets[recipient].close()
                 del p2p_sockets[recipient]
                 sys.stdout.write("> ")
@@ -165,11 +167,21 @@ def send_func(clientSocket, authentication):
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
+        elif message["Command"] == "logout":
+            for recipient in p2p_sockets:
+                reverse_response = create_message_template("del", message["Sender"], "", "")
+                p2p_sockets[recipient].send(dumps(reverse_response).encode())
+                p2p_sockets[recipient].shutdown(SHUT_RDWR)
+                p2p_sockets[recipient].close()
+            del p2p_sockets
+            clientSocket.send(dumps(message).encode())
+            sys.stdout.write("> ")
+            sys.stdout.flush()
         else:
             clientSocket.send(dumps(message).encode())
             sys.stdout.write("> ")
             sys.stdout.flush()
-        time.sleep(0.1)
+        time.sleep(0.5)
 
 def recv_func(clientSocket, authentication):
     # this function deals with our received data from the server
@@ -185,9 +197,16 @@ def recv_func(clientSocket, authentication):
             sys.stdout.write("\n")
             sys.stdout.write("> ")
             sys.stdout.flush()
-        elif response["Command"] == "message":
+        elif response["Command"] == "message" or response["Command"] == "broadcast":
             sys.stdout.write(response["Sender"])
             sys.stdout.write(": ")
+            sys.stdout.write(response["Payload"])
+            sys.stdout.write("\n")
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+        elif response["Command"] == "notification":
+            sys.stdout.write(response["Sender"])
+            sys.stdout.write("-> ")
             sys.stdout.write(response["Payload"])
             sys.stdout.write("\n")
             sys.stdout.write("> ")
@@ -221,11 +240,13 @@ def recv_func(clientSocket, authentication):
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
+            
             except:
                 sys.stdout.write("Unable to conenct to client.")
                 sys.stdout.write("\n")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
+            
         elif response["Command"] == "peers":
             sys.stdout.write("The peers with the desired chunks are: ")
             sys.stdout.write(str(response["Payload"]))
@@ -298,7 +319,7 @@ def p2p_recv_func(p2p_socket, authentication):
 
         else:
             sys.stdout.write(response["Sender"])
-            sys.stdout.write(": ")
+            sys.stdout.write("(private): ")
             sys.stdout.write(response["Payload"])
             sys.stdout.write("\n")
             sys.stdout.write("> ")

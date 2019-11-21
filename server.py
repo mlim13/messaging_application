@@ -138,14 +138,15 @@ def message_send(connectionSocket, authentication):
     new_messages = []
     for msg in database.messages:
         if msg["User"] == authentication["Username"] and database.is_online(authentication["Username"]):
-            message = create_message(msg["Payload"], msg["Sender"])
+            # message = create_message(msg["Payload"], msg["Sender"])
             try:
-                connectionSocket.send(dumps(message).encode())
+                connectionSocket.send(dumps(msg).encode())
+                time.sleep(0.1)
             except:
                 new_messages.append(msg)
         else:
             new_messages.append(msg)
-        database.messages = new_messages
+    database.messages = new_messages
 
 def broadcast(connectionSocket, message):
     for user in database.online_users:
@@ -153,6 +154,15 @@ def broadcast(connectionSocket, message):
         # bascially everything is copied by reference
         # since we are modifying message, we need to make a new DEEP copy everytime
         msg = copy.deepcopy(message)
+        msg["Command"] = "broadcast"
+        if user != msg["Sender"]:
+            msg["User"] = user
+            message_recv(connectionSocket, msg)
+    
+def notify(connectionSocket, message):
+    for user in database.online_users:
+        msg = copy.deepcopy(message)
+        msg["Command"] = "notification"
         if user != msg["Sender"]:
             msg["User"] = user
             message_recv(connectionSocket, msg)
@@ -223,7 +233,7 @@ def startprivate(connectionSocket, message):
 def logout(connectionSocket, authentication):
     message = create_message_template("", "", "Logging out!", authentication["Username"])
     message = create_notification(message)
-    broadcast(connectionSocket, message)
+    notify(connectionSocket, message)
     database.go_offline(authentication["Username"])
     connectionSocket.close()
 
@@ -293,7 +303,7 @@ def TCP_recv(connectionSocket):
         # first send out presence broadcast
         message = create_message_template("", "", "I've logged in!", authentication["Username"])
         message = create_notification(message)
-        broadcast(connectionSocket, message)
+        notify(connectionSocket, message)
         send_thread = threading.Thread(target=TCP_send, daemon=True, args=(connectionSocket, authentication))
         send_thread.start()   
         connectionSocket.settimeout(database.timeout)          
@@ -343,12 +353,12 @@ def TCP_recv(connectionSocket):
                 connectionSocket.send(dumps(peer_msg).encode())   
             elif message["Command"] == "download":
                 download(connectionSocket, message)
-            time.sleep(0.2)       
+            time.sleep(0.5)       
 
 def TCP_send(connectionSocket, authentication):
     while True:
         message_send(connectionSocket, authentication) # continually send any pending messages 
-        time.sleep(0.1)
+        time.sleep(1)
 
 database.block_time = int(sys.argv[2])
 database.timeout = int(sys.argv[3])
