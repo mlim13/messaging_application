@@ -1,2 +1,2 @@
-# COMP3331_Assignment
-Building a messaging service
+# TCP Messaging Application
+Building a basic messaging service
